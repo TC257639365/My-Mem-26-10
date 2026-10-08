@@ -1,0 +1,30 @@
+[
+  {
+    "case_id": "plant-demo-001",
+    "task": "我想在家里养一种新植物，是否合适？",
+    "candidates": [
+      {
+        "memory_id": "m-dog-chewing",
+        "memory_type": "item",
+        "content": "家里的狗正在长牙，最近喜欢咬能够接触到的东西。",
+        "source_turn_ids": ["turn-12"],
+        "retrieval_channels": ["entity_bridge_trigger"],
+        "retrieval_scores": {"final": 0.81}
+      }
+    ],
+    "evidence_pool": [
+      {
+        "document_id": "kb-plant-dog-001",
+        "content": "示例植物对犬类有毒，摄入可能造成健康风险。",
+        "source_type": "knowledge",
+        "provenance": "controlled-fixture:kb-plant-dog-001"
+      },
+      {
+        "document_id": "env-placement-001",
+        "content": "用户计划把植物放在犬只能够接触到的地面位置。",
+        "source_type": "environment",
+        "provenance": "controlled-fixture:env-placement-001"
+      }
+    ]
+  }
+]
