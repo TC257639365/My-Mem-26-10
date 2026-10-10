@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import re
 
-from my_mem.schemas import AcquiredEvidence, EvidenceDocument, EvidenceGap
+from my_mem.schemas import (
+    AcquiredEvidence,
+    EvidenceDocument,
+    EvidenceGap,
+)
 
 
 def _terms(text: str) -> set[str]:
@@ -35,7 +39,7 @@ class FixedCorpusRetriever:
         ranked: list[tuple[float, EvidenceDocument]] = []
         for document in documents:
             # 先按证据源路由，避免知识问题误用环境记录作答。
-            if gap.source_type not in ("any", "unknown") and document.source_type != gap.source_type:
+            if document.source_type != gap.source_type:
                 continue
             doc_terms = _terms(document.content)
             score = len(query_terms & doc_terms) / max(1, len(query_terms))

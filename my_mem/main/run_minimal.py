@@ -15,7 +15,11 @@ from T_mem.llm.llm_provider import LLMProvider
 from my_mem.adapters.tmem import load_case_file, load_cases, load_evidence_pool
 from my_mem.evidence.fixed_corpus import FixedCorpusRetriever
 from my_mem.influence.controller import ControllerConfig, InfluenceController
-from my_mem.influence.llm_components import LLMHypothesisBuilder, LLMInfluenceValidator
+from my_mem.influence.llm_components import (
+    LLMHypothesisBuilder,
+    LLMInfluenceValidator,
+    LLMTaskFrameBuilder,
+)
 
 
 async def _run(args: argparse.Namespace) -> None:
@@ -36,6 +40,7 @@ async def _run(args: argparse.Namespace) -> None:
         builder=LLMHypothesisBuilder(provider),
         retriever=FixedCorpusRetriever(),
         validator=LLMInfluenceValidator(provider),
+        task_frame_builder=LLMTaskFrameBuilder(provider),
         config=ControllerConfig(
             max_candidates=args.max_candidates,
             max_total_gaps=args.max_gaps,

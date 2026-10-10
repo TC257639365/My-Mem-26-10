@@ -1,4 +1,4 @@
-"""HypothesisBuilder 和 InfluenceValidator 的 LLM 实现。"""
+"""TaskFrame、Hypothesis 和 Influence Validation 的 LLM 实现。"""
 
 from __future__ import annotations
 
@@ -7,13 +7,22 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from my_mem.influence.prompts import HYPOTHESIS_PROMPT, VALIDATION_PROMPT
+from my_mem.influence.prompts import (
+    HYPOTHESIS_PROMPT,
+    TASK_FRAME_PROMPT,
+    VALIDATION_PROMPT,
+)
 from my_mem.schemas import (
     AcquiredEvidence,
     CandidateMemory,
     InfluenceHypothesis,
+    TaskFrame,
     ValidatedInfluence,
 )
+
+
+class _TaskFrameEnvelope(BaseModel):
+    task_frame: TaskFrame
 
 
 class _HypothesisEnvelope(BaseModel):
@@ -61,6 +70,9 @@ async def _generate_typed_json(
             errors = json.dumps(
                 exc.errors(include_url=False, include_input=False),
                 ensure_ascii=False,
+                # Pydantic 的 model_validator 错误可能在 ctx 中携带 ValueError
+                # 对象；转换为字符串后才能把校验反馈交给模型进行结构修复。
+                default=str,
             )
             # 带回上一次输出，模型才能只修正错误字段；限制长度避免异常响应
             # 在重试时无限放大 prompt。
@@ -82,11 +94,15 @@ class LLMHypothesisBuilder:
         self.provider = provider
 
     async def build(
-        self, task: str, candidates: list[CandidateMemory]
+        self,
+        task: str,
+        task_frame: TaskFrame,
+        candidates: list[CandidateMemory],
     ) -> list[InfluenceHypothesis]:
-        # 只把 task 和候选记忆送给第一轮模型；固定证据池此时不可见。
+        # 固定证据池此时不可见；公共维度由候选无关的 TaskFrame 提供。
         prompt = HYPOTHESIS_PROMPT.format(
             task=task,
+            task_frame_json=task_frame.model_dump_json(),
             candidates_json=json.dumps(
                 [candidate.model_dump(mode="json") for candidate in candidates],
                 ensure_ascii=False,
@@ -104,9 +120,25 @@ class LLMHypothesisBuilder:
         # 必须一条候选对应一条 hypothesis，防止模型漏判或虚构 memory_id。
         if received != expected:
             raise ValueError(
-                f"hypothesis candidate ids do not match input: expected={expected}, received={received}"
+                "hypothesis candidate ids do not match input: "
+                f"expected={expected}, received={received}"
             )
         return result.hypotheses
+
+
+class LLMTaskFrameBuilder:
+    def __init__(self, provider: Any):
+        self.provider = provider
+
+    async def build(self, task: str) -> TaskFrame:
+        prompt = TASK_FRAME_PROMPT.format(task=task)
+        result = await _generate_typed_json(
+            self.provider,
+            prompt,
+            _TaskFrameEnvelope,
+            call_site="influence.task_frame",
+        )
+        return result.task_frame
 
 
 class LLMInfluenceValidator:

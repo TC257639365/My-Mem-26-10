@@ -36,7 +36,7 @@ class TMemAdapterTests(unittest.TestCase):
                 {
                     "document_id": "d1",
                     "content": "该植物对犬类有毒",
-                    "source_type": "knowledge",
+                    "source_type": "external_knowledge",
                     "provenance": "fixture:d1",
                 }
             ]

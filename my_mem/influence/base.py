@@ -8,15 +8,25 @@ from my_mem.schemas import (
     AcquiredEvidence,
     CandidateMemory,
     InfluenceHypothesis,
+    TaskFrame,
     ValidatedInfluence,
 )
 
 
+class TaskFrameBuilder(Protocol):
+    """Query -> 候选无关的公共 TaskFrame。"""
+
+    async def build(self, task: str) -> TaskFrame: ...
+
+
 class HypothesisBuilder(Protocol):
-    """Task + CandidateMemory -> InfluenceHypothesis。"""
+    """Task + TaskFrame + CandidateMemory -> InfluenceHypothesis。"""
 
     async def build(
-        self, task: str, candidates: list[CandidateMemory]
+        self,
+        task: str,
+        task_frame: TaskFrame,
+        candidates: list[CandidateMemory],
     ) -> list[InfluenceHypothesis]: ...
 
 
