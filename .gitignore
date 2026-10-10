@@ -1,8 +1,12 @@
 .env
+# 含密钥的运行配置不进入 Git；只提交对应的 *.example 模板。
+cloud.env
+local.env
+*.env.local
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+*.egg-info/
 results/
 *.jsonl
-

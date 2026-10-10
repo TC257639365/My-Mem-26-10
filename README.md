@@ -29,9 +29,18 @@ first experiment.
 4. Compare the resulting validated influences with a direct-answer baseline
    under the same model and token/call budget.
 
-`examples/sample_cases.json` is a local, deterministic smoke-test input.  The
-fixed evidence pool is only a controlled experimental substitute for future
-memory, knowledge, environment and user evidence providers.
+直接读取 T-Mem Stage 6 输出时，可以运行：
+
+```bash
+python -m my_mem.main.run_minimal \
+  --input results/<run>/search_results.json \
+  --input-format tmem \
+  --evidence-pool evidence_pool.json \
+  --output results/influence_results.json
+```
+
+生成模型默认读取 `T_MEM_LLM_BASE_MODEL`。`--model` 仅用于临时覆盖，正常
+实验不需要传入，以免命令行模型名与环境配置不一致。
 
 The original LoCoMo/LoCoMo-Plus data are not duplicated into this directory.
 Pass their paths with `--locomo-file` / `--locomo-plus-file`, or point to data
@@ -39,9 +48,12 @@ stored under `T-Mem_origin/benchmark_eval/...`.
 
 ## Environment
 
-The reused T-Mem provider accepts OpenAI-compatible chat-completion endpoints.
-See `.env.example`.  My-Mem uses the existing `T_MEM_*` variables for now so the
-candidate generator and influence layer share one reproducible model setup.
+The reused T-Mem provider accepts OpenAI-compatible endpoints. See
+`.env.example`. Chat, embedding and reranking model choices are centralized in
+environment variables, so sourcing `cloud.env` or `local.env` switches the
+whole pipeline without changing code. Embedding reuses the LLM endpoint and API
+key unless explicitly overridden; reranking may use a provider-specific full
+URL through `T_MEM_RERANKER_URL`.
 
 ## Current boundaries
 
@@ -50,4 +62,3 @@ candidate generator and influence layer share one reproducible model setup.
 - A gap is a testable proposition, not a free-form statement of uncertainty.
 - The deterministic controller enforces candidate, gap and evidence budgets.
 - Inference results are not written back to long-term memory in this version.
-

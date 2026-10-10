@@ -820,9 +820,8 @@ def hierarchical_retrieval(
                 "n_items_recalled": len(_l1_raw_ids),
                 "n_items_valid": len(_l1_valid_ids),
                 "n_items_new": len(_l1_new_ids),
-                # Keep full ids for downstream influence analysis.  The original
-                # T-Mem log retained only aggregate counts, which is sufficient
-                # for QA but not for attributing why a candidate was reached.
+                # My-Mem 需要知道“候选为什么被想起”，因此保留完整 trigger/item ID。
+                # 原始 T-Mem 只记录聚合数量，足够做 QA，却无法做候选级影响归因。
                 "trigger_ids": [hit.trigger_id for hit in _l1_result.triggers],
                 "recalled_item_ids": sorted(_l1_valid_ids),
                 "new_item_ids": sorted(_l1_new_ids),
@@ -1093,13 +1092,11 @@ def _serialize_candidate_memories(
     hierarchical_results: Dict[str, Any],
     memory_graph: Dict[str, Any],
 ) -> list[dict]:
-    """Preserve the structured candidates consumed by My-Mem.
+    """在格式化 QA context 之前，保存 My-Mem 所需的结构化候选。
 
-    T-Mem normally flattens retrieval results into a display-oriented context
-    string.  Influence validation needs stable ids, source turns, scores and the
-    route that surfaced each candidate, so the fork persists those fields before
-    formatting.  Trigger text remains retrieval metadata and is never promoted
-    to evidence here.
+    原始 T-Mem 会把结果压成面向回答模型的字符串；影响验证还需要稳定 ID、
+    来源 turn、检索分数和召回通道。注意 trigger 只作为 reachability metadata，
+    绝不在这里升级为 evidence。
     """
     log = hierarchical_results.get("retrieval_log", {}) or {}
     scene_assoc = (log.get("layer2_scene", {}) or {}).get("scene_horizon_assoc", {}) or {}
@@ -1111,6 +1108,7 @@ def _serialize_candidate_memories(
     items_g = memory_graph.get("items", {}) or {}
 
     def turn_ids(scene_ids: list[str]) -> list[str]:
+        # 将 scene/item 回溯到原对话 turn，供 provenance 和后续人工标注使用。
         out: list[str] = []
         for sid in scene_ids:
             for turn in (scenes_g.get(sid, {}) or {}).get("original_data", []) or []:
@@ -1272,6 +1270,8 @@ def process_single_conversation_retrieval(
             
             # [BENCHMARK ADD-ON] trace retrieved scenes/items -> original turn ids
             traced = _extract_retrieved_dia_ids(hierarchical_results, memory_graph)
+            # 同时保留原 T-Mem context 与 My-Mem candidates：前者用于直接回答基线，
+            # 后者进入 Influence -> Gap -> Evidence -> Validation 实验链。
             structured_candidates = _serialize_candidate_memories(
                 hierarchical_results, memory_graph
             )
@@ -1355,6 +1355,7 @@ async def main():
     if config.use_reranker:
         reranker_provider = RerankerProvider(
             base_url=config.reranker_config["base_url"],
+            endpoint_url=config.reranker_config["url"],
             model_name=config.reranker_config["model_name"],
             max_retries=config.reranker_max_retries
         )
@@ -1480,4 +1481,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

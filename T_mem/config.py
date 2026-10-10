@@ -4,6 +4,15 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+from T_mem.llm.model_config import (
+    embedding_base_url,
+    embedding_model,
+    llm_model,
+    reranker_base_url,
+    reranker_model,
+    reranker_url,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -15,12 +24,13 @@ RESULTS_DIR = Path(_RESULTS_DIR_OVERRIDE).resolve() if _RESULTS_DIR_OVERRIDE els
 # Public, OpenAI-compatible model aliases used by the pipeline. These are the
 # model names exactly as they must exist on the OpenAI-compatible endpoint
 # configured via T_MEM_LLM_BASE_URL (e.g. OpenAI, vLLM, SiliconFlow, ...).
+_base_model = llm_model()
 MODELS: dict = {
-    "memory_build":      "gpt-4.1-mini",
-    "locomo_qa":         "gpt-4o-mini",
-    "locomo_judge":      "gpt-4o-mini",
-    "locomo_plus_qa":    "gpt-4o",
-    "locomo_plus_judge": "gemini-2.5-flash",
+    "memory_build":      _base_model,
+    "locomo_qa":         _base_model,
+    "locomo_judge":      _base_model,
+    "locomo_plus_qa":    _base_model,
+    "locomo_plus_judge": _base_model,
 }
 
 # Override any model alias via env without editing this file:
@@ -65,12 +75,10 @@ class ExperimentConfig:
     num_conv: int = _detect_num_conv(dataset_path)
 
     # Embedding endpoint (OpenAI-compatible). Configure via env:
-    #   T_MEM_EMBEDDING_BASE_URL / T_MEM_EMBEDDING_MODEL
+    #   T_MEM_EMBEDDING_BASE_URL / T_MEM_LLM_EMBEDDING_MODEL
     embedding_config: dict = {
-        "model_name": os.environ.get("T_MEM_EMBEDDING_MODEL", "bge-m3"),
-        "base_url": os.environ.get(
-            "T_MEM_EMBEDDING_BASE_URL", "https://api.openai.com/v1"
-        ),
+        "model_name": embedding_model(),
+        "base_url": embedding_base_url(),
     }
     embedding_max_retries: int = 10
 
@@ -106,10 +114,9 @@ class ExperimentConfig:
     #   T_MEM_RERANKER_BASE_URL / T_MEM_RERANKER_MODEL
     use_reranker: bool = True
     reranker_config: dict = {
-        "model_name": os.environ.get("T_MEM_RERANKER_MODEL", "bge-reranker-v2-m3"),
-        "base_url": os.environ.get(
-            "T_MEM_RERANKER_BASE_URL", "https://api.openai.com/v1"
-        ),
+        "model_name": reranker_model(),
+        "base_url": reranker_base_url(),
+        "url": reranker_url(),
     }
     reranker_max_retries: int = 10
 

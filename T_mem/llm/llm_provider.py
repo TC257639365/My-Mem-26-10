@@ -9,6 +9,7 @@ Configuration (all via environment variables, see ``.env.example``):
 - ``T_MEM_LLM_BASE_URL``  base URL of the OpenAI-compatible endpoint
                           (default: ``https://api.openai.com/v1``)
 - ``T_MEM_LLM_API_KEY``   API key (fallback: ``OPENAI_API_KEY``)
+- ``T_MEM_LLM_BASE_MODEL`` default model used when callers do not override it
 - ``T_MEM_MAX_CONCURRENCY`` global cap on in-flight LLM requests
 - ``T_MEM_RETRIES``       network retries per call (default 4)
 - ``T_MEM_JSON_MAX_RETRIES`` re-asks for valid JSON (default 3)
@@ -45,17 +46,19 @@ import random
 
 import requests
 
+from T_mem.llm.model_config import llm_api_key, llm_base_url, llm_model
+
 _logger = logging.getLogger("T_mem.llm")
 
 
 def _base_url() -> str:
     """OpenAI-compatible endpoint base URL (no trailing slash)."""
-    return os.environ.get("T_MEM_LLM_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
+    return llm_base_url()
 
 
 def _api_key() -> str:
     """API key for the OpenAI-compatible endpoint."""
-    return os.environ.get("T_MEM_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
+    return llm_api_key()
 
 
 def _endpoint() -> str:
@@ -257,7 +260,8 @@ class LLMProvider:
         except Exception:
             pass
 
-        self.model = model
+        # 模型选择集中由环境变量管理；构造参数仅保留为临时调试覆盖。
+        self.model = llm_model(model)
         self.timeout = int(os.environ.get("T_MEM_TIMEOUT", str(timeout)))
         self.retries = max(1, int(os.environ.get("T_MEM_RETRIES", str(retries))))
         self.json_max_retries = max(1, int(os.environ.get("T_MEM_JSON_MAX_RETRIES", str(json_max_retries))))

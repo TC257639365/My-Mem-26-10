@@ -193,7 +193,8 @@ async def _amain(args):
         json_max_retries=args.json_retries,
         temperature=0.0,
     )
-    embed_provider = EmbeddingProvider(model_name="bge-m3")
+    # Embedding 模型统一由 T_MEM_LLM_EMBEDDING_MODEL 选择。
+    embed_provider = EmbeddingProvider()
 
     cfg = ExtractorConfig(
         entity_bridge_count_per_item=args.entity_bridge_per_item,

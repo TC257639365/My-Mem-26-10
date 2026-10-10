@@ -1,7 +1,7 @@
-"""Evidence acquisition interface.
+"""证据获取接口。
 
-Future providers (personal memory, web knowledge, environment tools and user
-questions) should implement this contract without changing the controller.
+未来的个人记忆、外部知识、环境工具和用户询问都应实现同一协议，
+这样替换证据来源时不需要修改 Controller。
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from my_mem.schemas import AcquiredEvidence, EvidenceDocument, EvidenceGap
 
 
 class EvidenceRetriever(Protocol):
+    """输入一个 EvidenceGap，返回带来源信息的证据列表。"""
+
     async def retrieve(
         self,
         gap: EvidenceGap,
@@ -19,4 +21,3 @@ class EvidenceRetriever(Protocol):
         *,
         limit: int,
     ) -> list[AcquiredEvidence]: ...
-

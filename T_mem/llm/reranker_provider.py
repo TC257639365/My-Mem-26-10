@@ -9,8 +9,9 @@ per-pair calls (same contract as the previous internal rerankers).
 
 Configuration (environment variables, see ``.env.example``):
 
-- ``T_MEM_RERANKER_BASE_URL`` base URL of the rerank endpoint
-                             (default: ``https://api.openai.com/v1``)
+- ``T_MEM_RERANKER_URL``      full rerank endpoint (recommended because
+                              providers use different paths)
+- ``T_MEM_RERANKER_BASE_URL`` legacy base URL; appends ``/rerank``
 - ``T_MEM_RERANKER_MODEL``    reranker model name (default: ``bge-reranker-v2-m3``)
 - ``T_MEM_RERANKER_API_KEY``  API key (fallback: ``T_MEM_LLM_API_KEY`` /
                               ``OPENAI_API_KEY``)
@@ -20,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import random
 import time
 from typing import List
@@ -29,23 +29,23 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from T_mem.llm.model_config import (
+    reranker_api_key,
+    reranker_base_url,
+    reranker_model,
+    reranker_url,
+)
+
 
 _logger = logging.getLogger("T_mem.reranker")
 
 
 def _base_url() -> str:
-    return os.environ.get(
-        "T_MEM_RERANKER_BASE_URL", "https://api.openai.com/v1"
-    ).strip().rstrip("/")
+    return reranker_base_url()
 
 
 def _api_key() -> str:
-    return (
-        os.environ.get("T_MEM_RERANKER_API_KEY")
-        or os.environ.get("T_MEM_LLM_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or ""
-    )
+    return reranker_api_key()
 
 
 class RerankerProvider:  # pylint: disable=too-few-public-methods
@@ -54,15 +54,16 @@ class RerankerProvider:  # pylint: disable=too-few-public-methods
     def __init__(
         self,
         base_url: str = "",
-        model_name: str = "bge-reranker-v2-m3",
+        endpoint_url: str = "",
+        model_name: str | None = None,
         timeout: int = 120,
         max_retries: int = 10,
         **kwargs,
     ):
         self.base_url = (base_url or _base_url()).rstrip("/")
-        self.model_name = model_name or os.environ.get(
-            "T_MEM_RERANKER_MODEL", "bge-reranker-v2-m3"
-        )
+        # 统一从 cloud.env/local.env 选择模型，显式参数只用于调试覆盖。
+        self.model_name = reranker_model(model_name)
+        self.endpoint_url = endpoint_url.strip() or reranker_url(self.base_url)
         self.display_name = self.model_name
         self.timeout = timeout
         self.max_retries = max_retries
@@ -80,7 +81,7 @@ class RerankerProvider:  # pylint: disable=too-few-public-methods
         self.session.mount("https://", adapter)
 
     def _endpoint(self) -> str:
-        return self.base_url + "/rerank"
+        return self.endpoint_url
 
     def rerank(
         self,

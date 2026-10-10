@@ -1,7 +1,7 @@
-"""Typed contracts between retrieval, reasoning, evidence and validation.
+"""检索、影响推理、证据获取和验证模块之间共享的数据契约。
 
-The contracts are intentionally stricter than the prompts.  Model-generated
-text may propose hypotheses, but only validated objects cross module boundaries.
+这里的结构约束有意比 Prompt 更严格：LLM 可以提出假设，但只有通过
+Pydantic 校验的数据才能流入下一模块，从而避免自然语言字段悄悄漂移。
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
+    # 禁止未知字段，Prompt 和代码的数据协议不一致时立即失败，而不是静默丢字段。
     model_config = ConfigDict(extra="forbid")
 
 
@@ -44,6 +45,8 @@ class ValidationStatus(str, Enum):
 
 
 class CandidateMemory(StrictModel):
+    """T-Mem 候选发现层交给 My-Mem 的最小记忆对象。"""
+
     memory_id: str
     memory_type: str = "item"
     content: str
@@ -55,6 +58,8 @@ class CandidateMemory(StrictModel):
 
 
 class EvidenceDocument(StrictModel):
+    """实验预先提供的可检索证据；provenance 用于追踪事实来源。"""
+
     document_id: str
     content: str
     source_type: str
@@ -63,6 +68,8 @@ class EvidenceDocument(StrictModel):
 
 
 class EvidenceGap(StrictModel):
+    """可被检索和判真的缺失命题，而不是笼统的“仍不确定”。"""
+
     gap_id: str
     proposition: str
     source_type: str
@@ -73,6 +80,8 @@ class EvidenceGap(StrictModel):
 
 
 class InfluenceHypothesis(StrictModel):
+    """一条候选记忆影响当前任务的待验证解释。"""
+
     candidate_id: str
     status: InfluenceStatus
     effect_target: str = ""
@@ -87,12 +96,15 @@ class InfluenceHypothesis(StrictModel):
 
     @model_validator(mode="after")
     def irrelevant_has_no_gaps(self) -> "InfluenceHypothesis":
+        # 已判为无关的候选不应继续消耗证据预算。
         if self.status == InfluenceStatus.IRRELEVANT and self.gaps:
             raise ValueError("irrelevant hypotheses cannot request evidence")
         return self
 
 
 class AcquiredEvidence(StrictModel):
+    """EvidenceRetriever 针对某个 gap 实际取回的证据。"""
+
     evidence_id: str
     gap_id: str
     document_id: str
@@ -104,6 +116,8 @@ class AcquiredEvidence(StrictModel):
 
 
 class ValidatedInfluence(StrictModel):
+    """验证后的影响结论，是本轮最小实现的最终语义产物。"""
+
     candidate_id: str
     status: ValidationStatus
     conclusion: str
@@ -114,12 +128,15 @@ class ValidatedInfluence(StrictModel):
 
     @model_validator(mode="after")
     def validated_requires_evidence(self) -> "ValidatedInfluence":
+        # 防止模型只凭自信度把 hypothesis 宣布为已验证。
         if self.status == ValidationStatus.VALIDATED and not self.evidence_ids:
             raise ValueError("validated influence must cite acquired evidence")
         return self
 
 
 class TaskCase(StrictModel):
+    """Controller 的完整输入：任务、候选记忆以及本轮允许访问的证据池。"""
+
     case_id: str
     task: str
     candidates: list[CandidateMemory]
@@ -128,10 +145,11 @@ class TaskCase(StrictModel):
 
 
 class InfluenceRunResult(StrictModel):
+    """一次运行的完整轨迹，用于评测、消融和错误分析。"""
+
     case_id: str
     task: str
     hypotheses: list[InfluenceHypothesis]
     acquired_evidence: list[AcquiredEvidence]
     validated_influences: list[ValidatedInfluence]
     diagnostics: dict[str, Any] = Field(default_factory=dict)
-

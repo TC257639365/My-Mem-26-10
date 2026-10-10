@@ -6,18 +6,19 @@ Calls ``POST {base_url}/embeddings`` with an OpenAI-style body
 
 Configuration (environment variables, see ``.env.example``):
 
-- ``T_MEM_EMBEDDING_BASE_URL`` base URL of the OpenAI-compatible endpoint
-                              (default: ``https://api.openai.com/v1``)
-- ``T_MEM_EMBEDDING_MODEL``   embedding model name (default: ``bge-m3``)
+- ``T_MEM_EMBEDDING_BASE_URL`` optional endpoint; defaults to T_MEM_LLM_BASE_URL
+- ``T_MEM_LLM_EMBEDDING_MODEL`` embedding model name (legacy alias:
+                                ``T_MEM_EMBEDDING_MODEL``)
 - ``T_MEM_EMBEDDING_API_KEY`` API key (fallback: ``T_MEM_LLM_API_KEY`` /
                               ``OPENAI_API_KEY``)
+- ``T_MEM_EMBEDDING_BATCH_SIZE`` maximum texts per request (default: ``20``)
+- ``T_MEM_EMBEDDING_DIMENSIONS`` optional vector dimension
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 import random
 import time
 from typing import List
@@ -27,23 +28,24 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from T_mem.llm.model_config import (
+    embedding_api_key,
+    embedding_batch_size,
+    embedding_base_url,
+    embedding_dimensions,
+    embedding_model,
+)
+
 
 _logger = logging.getLogger("T_mem.embedding")
 
 
 def _base_url() -> str:
-    return os.environ.get(
-        "T_MEM_EMBEDDING_BASE_URL", "https://api.openai.com/v1"
-    ).strip().rstrip("/")
+    return embedding_base_url()
 
 
 def _api_key() -> str:
-    return (
-        os.environ.get("T_MEM_EMBEDDING_API_KEY")
-        or os.environ.get("T_MEM_LLM_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or ""
-    )
+    return embedding_api_key()
 
 
 class EmbeddingProvider:  # pylint: disable=too-few-public-methods
@@ -52,16 +54,20 @@ class EmbeddingProvider:  # pylint: disable=too-few-public-methods
     def __init__(
         self,
         base_url: str = "",
-        model_name: str = "bge-m3",
+        model_name: str | None = None,
         timeout: int = 120,
         max_retries: int = 10,
+        batch_size: int | None = None,
         **kwargs,
     ):
         self.base_url = (base_url or _base_url()).rstrip("/")
-        self.model_name = model_name or os.environ.get("T_MEM_EMBEDDING_MODEL", "bge-m3")
+        # 统一从 cloud.env/local.env 选择模型，显式参数只用于调试覆盖。
+        self.model_name = embedding_model(model_name)
         self.display_name = self.model_name
         self.timeout = timeout
         self.max_retries = max_retries
+        self.batch_size = embedding_batch_size(batch_size)
+        self.dimensions = embedding_dimensions()
 
         self.session = requests.Session()
         retry_strategy = Retry(
@@ -80,11 +86,21 @@ class EmbeddingProvider:  # pylint: disable=too-few-public-methods
     def embed(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
+        # 各调用阶段原先拥有不同的 batch_size。统一在 Provider 边界再次切分，
+        # 防止任何上游一次提交超过云模型限制的文本数量。
+        vectors: List[List[float]] = []
+        for start in range(0, len(texts), self.batch_size):
+            vectors.extend(self._embed_one_batch(texts[start : start + self.batch_size]))
+        return vectors
+
+    def _embed_one_batch(self, texts: List[str]) -> List[List[float]]:
         headers = {"Content-Type": "application/json"}
         api_key = _api_key()
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         data = {"model": self.model_name, "input": texts}
+        if self.dimensions is not None:
+            data["dimensions"] = self.dimensions
 
         last_err = None
         for attempt in range(self.max_retries):
