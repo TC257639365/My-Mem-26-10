@@ -33,6 +33,7 @@ class FixedCorpusRetriever:
         documents: list[EvidenceDocument],
         *,
         limit: int,
+        candidate_id: str | None = None,
     ) -> list[AcquiredEvidence]:
         # proposition 表达“要验证什么”，retrieval_query 表达“应该搜什么”。
         query_terms = _terms(f"{gap.proposition} {gap.retrieval_query}")

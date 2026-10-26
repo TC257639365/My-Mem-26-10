@@ -11,7 +11,7 @@ The repository deliberately separates two layers:
 - `T_mem/`: selected T-Mem memory construction and retrieval code.  It is the
   candidate generator and should remain close to upstream for fair comparison.
 - `my_mem/`: the new
-  `TaskFrame -> Candidate -> Hypothesis -> Gap -> Evidence -> Validation`
+  `TaskFrame -> Dimension Challenge -> Hypothesis -> Gap -> Evidence -> Validation`
   pipeline.
 
 The first prototype intentionally excludes factor ontologies, memory write-back,
@@ -40,6 +40,17 @@ python -m my_mem.main.run_minimal \
   --output results/influence_results.json
 ```
 
+Stage2 pilot 的第一次固定非消融实验使用独立入口；它包含受控证据回放、
+Evidence relation 判断、逐 case 续跑和分层评分：
+
+```bash
+python -m my_mem.main.run_stage2_test1 \
+  --dataset-dir ../ProcessedDataset/stage2_influence_pilot_12 \
+  --condition Eplus \
+  --output results/stage2_test1/run_eplus.json \
+  --score-output results/stage2_test1/evaluation_eplus.json
+```
+
 生成模型默认读取 `T_MEM_LLM_BASE_MODEL`。`--model` 仅用于临时覆盖，正常
 实验不需要传入，以免命令行模型名与环境配置不一致。
 
@@ -59,19 +70,25 @@ URL through `T_MEM_RERANKER_URL`.
 ## Current boundaries
 
 - Retrieval metadata helps locate candidates but is never evidence.
-- Influence is classified natively as `high`, `low`, or `none`; `impact` is a
-  within-level ranking score with schema-enforced ranges (`none < 0.20`,
-  `0.20 <= low < 0.60`, `high >= 0.60`).
+- Influence semantics are separated into four states: `potential_impact`
+  (`high|low|none`) is the conditional effect if the bridge holds;
+  `bridge_status` (`supported|open|refuted`) and `bridge_confidence` describe
+  whether it holds; `validated_impact` is assigned only after validation.
 - Facts already stated by the task or candidate memory are recorded as
   supported claims and must not be proposed again as evidence gaps.
-- A query-only TaskFrame supplies common dimensions and prioritized response
-  obligations. Each candidate may add at most one temporary, grounded dimension;
-  it is not written back to the common frame and does not trigger another recall.
+- A query-only preliminary TaskFrame supplies a short response skeleton, common
+  dimensions, open slots and prioritized obligations. Before impact
+  classification, every candidate gets a separate dimension-challenge step and
+  may add at most one temporary grounded dimension. The challenge does not
+  mutate the common frame or trigger another recall.
 - Gap and document sources name acquisition channels only:
   `personal_memory_store`, `external_knowledge`, `environment_tool`, or `user`.
-- The whole influence bridge is expanded in one hypothesis call. Potentially
-  high-impact, low-confidence bridges are logged for later analysis rather than
-  triggering another model or candidate-recall round.
+- The whole influence bridge is expanded in one hypothesis call after dimension
+  review. A high-potential open bridge keeps its high conditional impact while
+  generating evidence gaps; low confidence no longer demotes it to low/none.
+- If an open bridge retrieves no new evidence, the controller emits
+  `unresolved` with `validated_impact=null` and preserves the potential impact;
+  it does not ask the validator to reclassify from evidence absence.
 - Every acquired evidence record carries provenance.
 - A gap is a testable proposition, not a free-form statement of uncertainty.
 - The deterministic controller enforces candidate, gap and evidence budgets.

@@ -18,8 +18,8 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class InfluenceLevel(str, Enum):
-    """候选记忆对当前回答或行动的实质影响强度。"""
+class ImpactLevel(str, Enum):
+    """桥接成立时，候选对当前回答或行动的条件影响上界。"""
 
     HIGH = "high"
     LOW = "low"
@@ -54,6 +54,14 @@ class ClaimBasis(str, Enum):
     GAP = "gap"
 
 
+class BridgeStatus(str, Enum):
+    """候选到任务的最小影响桥当前是否已经成立。"""
+
+    SUPPORTED = "supported"
+    OPEN = "open"
+    REFUTED = "refuted"
+
+
 class GapStatus(str, Enum):
     OPEN = "open"
     SUPPORTED = "supported"
@@ -62,6 +70,7 @@ class GapStatus(str, Enum):
 
 
 class EvidenceRelation(str, Enum):
+    UNJUDGED = "unjudged"
     SUPPORT = "support"
     REFUTE = "refute"
     INSUFFICIENT = "insufficient"
@@ -114,6 +123,7 @@ class TaskFrame(StrictModel):
     focal_response_goal: str = Field(min_length=1)
     response_obligations: list[ResponseObligation] = Field(min_length=1)
     common_dimensions: list[TaskDimension] = Field(min_length=1)
+    open_dimensions: list[str] = Field(default_factory=list)
     baseline_response: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -162,6 +172,26 @@ class ProposedDimension(StrictModel):
     decision_delta: str = Field(min_length=1)
 
 
+class CandidateDimensionChallenge(StrictModel):
+    """候选在影响定级前对 F0 的映射或一次局部维度挑战。"""
+
+    candidate_id: str
+    matched_dimension_ids: list[str] = Field(default_factory=list)
+    proposed_dimension: ProposedDimension | None = None
+    rationale: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def dimension_ids_are_unique(self) -> "CandidateDimensionChallenge":
+        if len(self.matched_dimension_ids) != len(set(self.matched_dimension_ids)):
+            raise ValueError("matched dimension ids must be unique")
+        if (
+            self.proposed_dimension is not None
+            and self.proposed_dimension.dimension_id in self.matched_dimension_ids
+        ):
+            raise ValueError("a proposed dimension cannot also be a matched dimension")
+        return self
+
+
 class BridgeStep(StrictModel):
     """单轮内显式展开的桥接步骤，并标明每步的事实基础。"""
 
@@ -183,10 +213,9 @@ class InfluenceHypothesis(StrictModel):
     """一条候选记忆影响当前任务的待验证解释。"""
 
     candidate_id: str
-    influence_level: InfluenceLevel
+    potential_impact: ImpactLevel
     effect_target: str = ""
-    matched_dimension_ids: list[str] = Field(default_factory=list)
-    proposed_dimension: ProposedDimension | None = None
+    target_dimension_ids: list[str] = Field(default_factory=list)
     mechanism: list[str] = Field(default_factory=list)
     bridge_steps: list[BridgeStep] = Field(default_factory=list)
     conditions: list[str] = Field(default_factory=list)
@@ -195,50 +224,43 @@ class InfluenceHypothesis(StrictModel):
     inferred_claims: list[str] = Field(default_factory=list)
     gaps: list[EvidenceGap] = Field(default_factory=list)
     possible_action_change: str | None = None
-    impact: float = Field(ge=0.0, le=1.0)
+    bridge_status: BridgeStatus
     bridge_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
-    def level_and_claims_are_consistent(self) -> "InfluenceHypothesis":
-        """强制三分类、impact 和 gap 语义保持一致。"""
+    def impact_bridge_and_claims_are_consistent(self) -> "InfluenceHypothesis":
+        """分别约束条件影响上界、桥接状态和证据缺口。"""
 
-        if self.influence_level == InfluenceLevel.NONE:
-            if self.impact >= 0.20:
-                raise ValueError("none influence requires impact < 0.20")
-            if self.gaps:
-                raise ValueError("none influence cannot request evidence gaps")
+        if len(self.target_dimension_ids) != len(set(self.target_dimension_ids)):
+            raise ValueError("target dimension ids must be unique")
+
+        if self.potential_impact == ImpactLevel.NONE:
             if self.possible_action_change:
-                raise ValueError("none influence cannot claim a possible action change")
-            if self.proposed_dimension is not None:
-                raise ValueError("none influence cannot create a novel dimension")
-            if self.bridge_steps:
-                raise ValueError("none influence cannot claim an influence bridge")
-        elif self.influence_level == InfluenceLevel.LOW:
-            if not 0.20 <= self.impact < 0.60:
-                raise ValueError("low influence requires 0.20 <= impact < 0.60")
+                raise ValueError("none potential impact cannot claim an action change")
+            if self.bridge_status != BridgeStatus.REFUTED:
+                raise ValueError("none potential impact requires a refuted bridge")
+        elif self.potential_impact == ImpactLevel.LOW:
             if not self.possible_action_change:
-                raise ValueError("low influence must state its minor action or response change")
-            if not self.matched_dimension_ids and self.proposed_dimension is None:
-                raise ValueError("low influence must target a common or proposed dimension")
+                raise ValueError("low potential impact must state its minor action change")
+            if not self.target_dimension_ids:
+                raise ValueError("low potential impact must target a reviewed dimension")
             if not self.bridge_steps:
-                raise ValueError("low influence must provide bridge steps")
-        elif self.influence_level == InfluenceLevel.HIGH:
-            if self.impact < 0.60:
-                raise ValueError("high influence requires impact >= 0.60")
+                raise ValueError("low potential impact must provide bridge steps")
+        elif self.potential_impact == ImpactLevel.HIGH:
             if not self.possible_action_change:
-                raise ValueError("high influence must state its material action or response change")
-            if not self.matched_dimension_ids and self.proposed_dimension is None:
-                raise ValueError("high influence must target a common or proposed dimension")
+                raise ValueError("high potential impact must state its material action change")
+            if not self.target_dimension_ids:
+                raise ValueError("high potential impact must target a reviewed dimension")
             if not self.bridge_steps:
-                raise ValueError("high influence must provide bridge steps")
+                raise ValueError("high potential impact must provide bridge steps")
 
-        if len(self.matched_dimension_ids) != len(set(self.matched_dimension_ids)):
-            raise ValueError("matched dimension ids must be unique")
-        if (
-            self.proposed_dimension is not None
-            and self.proposed_dimension.dimension_id in self.matched_dimension_ids
-        ):
-            raise ValueError("a proposed dimension cannot also be a matched common dimension")
+        if self.bridge_status == BridgeStatus.OPEN:
+            if not self.gaps:
+                raise ValueError("an open bridge must contain at least one evidence gap")
+            if not any(step.basis == ClaimBasis.GAP for step in self.bridge_steps):
+                raise ValueError("an open bridge must cite a gap-based bridge step")
+        elif self.gaps:
+            raise ValueError("only an open bridge may request evidence gaps")
 
         supported = self.task_supported_claims + self.memory_supported_claims
         supported_keys = {_claim_key(claim) for claim in supported if _claim_key(claim)}
@@ -275,8 +297,48 @@ class AcquiredEvidence(StrictModel):
     content: str
     source_type: EvidenceSourceType
     provenance: str
-    relation: EvidenceRelation = EvidenceRelation.INSUFFICIENT
+    # Retriever 只负责取得证据，不能把“没判断”伪装成 insufficient。
+    relation: EvidenceRelation = EvidenceRelation.UNJUDGED
+    relation_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    relation_rationale: str | None = None
+    grounding_spans: list[str] = Field(default_factory=list)
     retrieval_score: float = 0.0
+
+    @model_validator(mode="after")
+    def relation_judgment_is_complete(self) -> "AcquiredEvidence":
+        if self.relation == EvidenceRelation.UNJUDGED:
+            if self.relation_confidence is not None or self.relation_rationale:
+                raise ValueError("unjudged evidence cannot contain relation judgment")
+        else:
+            if self.relation_confidence is None or not self.relation_rationale:
+                raise ValueError("judged evidence requires confidence and rationale")
+            if self.relation in (EvidenceRelation.SUPPORT, EvidenceRelation.REFUTE):
+                if not self.grounding_spans:
+                    raise ValueError("support/refute evidence requires grounding spans")
+            missing = [span for span in self.grounding_spans if span not in self.content]
+            if missing:
+                raise ValueError(f"evidence grounding spans not found in content: {missing}")
+        return self
+
+
+class EvidenceRelationAssessment(StrictModel):
+    """Evidence relation judge 对一条已取得证据的独立语义判断。"""
+
+    evidence_id: str
+    gap_id: str
+    relation: EvidenceRelation
+    rationale: str = Field(min_length=1)
+    grounding_spans: list[str] = Field(default_factory=list)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def relation_must_be_judged(self) -> "EvidenceRelationAssessment":
+        if self.relation == EvidenceRelation.UNJUDGED:
+            raise ValueError("relation judge cannot return unjudged")
+        if self.relation in (EvidenceRelation.SUPPORT, EvidenceRelation.REFUTE):
+            if not self.grounding_spans:
+                raise ValueError("support/refute assessment requires grounding spans")
+        return self
 
 
 class ValidatedInfluence(StrictModel):
@@ -284,23 +346,45 @@ class ValidatedInfluence(StrictModel):
 
     candidate_id: str
     status: ValidationStatus
-    influence_level: InfluenceLevel
+    potential_impact: ImpactLevel
+    validated_impact: ImpactLevel | None = None
     conclusion: str
     evidence_ids: list[str] = Field(default_factory=list)
     unresolved_gap_ids: list[str] = Field(default_factory=list)
     action_implication: str | None = None
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    validation_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def validation_is_consistent(self) -> "ValidatedInfluence":
         # 防止模型只凭自信度把 hypothesis 宣布为已验证。
-        if self.status == ValidationStatus.VALIDATED and not self.evidence_ids:
-            raise ValueError("validated influence must cite acquired evidence")
+        if self.status == ValidationStatus.VALIDATED:
+            if not self.evidence_ids:
+                raise ValueError("validated influence must cite memory or acquired evidence")
+            if self.validated_impact not in (ImpactLevel.HIGH, ImpactLevel.LOW):
+                raise ValueError("validated influence requires high or low validated impact")
+            if self.potential_impact == ImpactLevel.NONE:
+                raise ValueError("none potential impact cannot become validated influence")
+            if (
+                self.potential_impact == ImpactLevel.LOW
+                and self.validated_impact == ImpactLevel.HIGH
+            ):
+                raise ValueError("validated impact cannot exceed the conditional upper bound")
         if self.status in (ValidationStatus.REJECTED, ValidationStatus.IRRELEVANT):
-            if self.influence_level != InfluenceLevel.NONE:
-                raise ValueError("rejected or irrelevant results must have none influence")
-        elif self.influence_level == InfluenceLevel.NONE:
-            raise ValueError("validated or unresolved results cannot have none influence")
+            if self.validated_impact != ImpactLevel.NONE:
+                raise ValueError("rejected or irrelevant results require none validated impact")
+        if self.status == ValidationStatus.IRRELEVANT:
+            if self.potential_impact != ImpactLevel.NONE:
+                raise ValueError("irrelevant result requires none potential impact")
+        if self.status == ValidationStatus.REJECTED:
+            if self.potential_impact == ImpactLevel.NONE:
+                raise ValueError("none potential impact is irrelevant, not rejected")
+        if self.status == ValidationStatus.UNRESOLVED:
+            if self.potential_impact == ImpactLevel.NONE:
+                raise ValueError("none potential impact cannot remain unresolved")
+            if self.validated_impact is not None:
+                raise ValueError("unresolved results cannot claim a validated impact")
+            if not self.unresolved_gap_ids:
+                raise ValueError("unresolved results must list unresolved gap ids")
         return self
 
 
@@ -317,9 +401,11 @@ class TaskCase(StrictModel):
 class InfluenceRunResult(StrictModel):
     """一次运行的完整轨迹，用于评测、消融和错误分析。"""
 
+    schema_version: str = "stage2-v2"
     case_id: str
     task: str
     task_frame: TaskFrame
+    dimension_challenges: list[CandidateDimensionChallenge]
     hypotheses: list[InfluenceHypothesis]
     acquired_evidence: list[AcquiredEvidence]
     validated_influences: list[ValidatedInfluence]

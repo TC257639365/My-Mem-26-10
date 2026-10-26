@@ -20,4 +20,15 @@ class EvidenceRetriever(Protocol):
         documents: list[EvidenceDocument],
         *,
         limit: int,
+        candidate_id: str | None = None,
     ) -> list[AcquiredEvidence]: ...
+
+
+class EvidenceRelationJudge(Protocol):
+    """判断已取得证据对具体 Gap 是支持、反驳还是不足。"""
+
+    async def judge(
+        self,
+        gap: EvidenceGap,
+        evidence: AcquiredEvidence,
+    ) -> AcquiredEvidence: ...

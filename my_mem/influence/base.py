@@ -6,6 +6,7 @@ from typing import Protocol
 
 from my_mem.schemas import (
     AcquiredEvidence,
+    CandidateDimensionChallenge,
     CandidateMemory,
     InfluenceHypothesis,
     TaskFrame,
@@ -19,14 +20,26 @@ class TaskFrameBuilder(Protocol):
     async def build(self, task: str) -> TaskFrame: ...
 
 
-class HypothesisBuilder(Protocol):
-    """Task + TaskFrame + CandidateMemory -> InfluenceHypothesis。"""
+class DimensionChallengeBuilder(Protocol):
+    """Task + F0 + CandidateMemory -> 候选局部的维度映射或挑战。"""
 
     async def build(
         self,
         task: str,
         task_frame: TaskFrame,
         candidates: list[CandidateMemory],
+    ) -> list[CandidateDimensionChallenge]: ...
+
+
+class HypothesisBuilder(Protocol):
+    """Task + 已审查维度 + CandidateMemory -> InfluenceHypothesis。"""
+
+    async def build(
+        self,
+        task: str,
+        task_frame: TaskFrame,
+        candidates: list[CandidateMemory],
+        dimension_challenges: list[CandidateDimensionChallenge],
     ) -> list[InfluenceHypothesis]: ...
 
 
